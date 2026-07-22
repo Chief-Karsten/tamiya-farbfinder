@@ -6,7 +6,7 @@ import { TAMIYA_COLORS, type TamiyaColor } from "@/lib/tamiya-colors";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Tamiya Farbfinder – Farben per Pipette auswählen" },
+      { title: "Tamiya Farbfinder" },
       {
         name: "description",
         content:
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Farben per Pipette aus einem Bild wählen und passende Tamiya-Töne als PDF exportieren.",
+          "Lade ein Bild hoch, wähle Farben per Pipette und finde die passenden Tamiya-Farben. Liste als PDF exportieren.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

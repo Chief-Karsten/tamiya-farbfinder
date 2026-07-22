@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Tamiya Farbfinder" },
+      { name: "description", content: "Lade ein Bild hoch, wähle Farben per Pipette und finde die passenden Tamiya-Farben. Liste als PDF exportieren." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Tamiya Farbfinder" },
+      { property: "og:description", content: "Lade ein Bild hoch, wähle Farben per Pipette und finde die passenden Tamiya-Farben. Liste als PDF exportieren." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Tamiya Farbfinder" },
+      { name: "twitter:description", content: "Lade ein Bild hoch, wähle Farben per Pipette und finde die passenden Tamiya-Farben. Liste als PDF exportieren." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a9c19e4-810a-4703-831f-c15af1c7fcf3/id-preview-089a9a3b--bc770a7a-a504-45e7-b465-bd78bf3abcb8.lovable.app-1784707109577.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/5a9c19e4-810a-4703-831f-c15af1c7fcf3/id-preview-089a9a3b--bc770a7a-a504-45e7-b465-bd78bf3abcb8.lovable.app-1784707109577.png" },
     ],
     links: [
       {

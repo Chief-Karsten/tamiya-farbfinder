@@ -247,7 +247,7 @@ function Index() {
 
         // Card
         doc.setDrawColor(220);
-        doc.setFillColor(252);
+        doc.setFillColor(252, 252, 252);
         doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "FD");
 
         // Swatch

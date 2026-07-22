@@ -1,21 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import jsPDF from "jspdf";
 import { TAMIYA_COLORS, type TamiyaColor } from "@/lib/tamiya-colors";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Tamiya Farbfinder – Bildfarben analysieren" },
+      { title: "Tamiya Farbfinder – Farben per Pipette auswählen" },
       {
         name: "description",
         content:
-          "Lade ein Bild hoch, analysiere die dominanten Farben und finde die passenden Tamiya-Farben dazu.",
+          "Lade ein Bild hoch, wähle Farben per Pipette und finde die passenden Tamiya-Farben. Liste als PDF exportieren.",
       },
       { property: "og:title", content: "Tamiya Farbfinder" },
       {
         property: "og:description",
         content:
-          "Dominante Bildfarben automatisch den nächstgelegenen Tamiya-Farben zuordnen.",
+          "Farben per Pipette aus einem Bild wählen und passende Tamiya-Töne als PDF exportieren.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -26,6 +27,11 @@ export const Route = createFileRoute("/")({
 
 type RGB = { r: number; g: number; b: number };
 
+function rgbToHex({ r, g, b }: RGB): string {
+  const c = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+
 function hexToRgb(hex: string): RGB {
   const h = hex.replace("#", "");
   return {
@@ -35,18 +41,11 @@ function hexToRgb(hex: string): RGB {
   };
 }
 
-function rgbToHex({ r, g, b }: RGB): string {
-  const c = (n: number) => n.toString(16).padStart(2, "0");
-  return `#${c(r)}${c(g)}${c(b)}`;
-}
-
-// sRGB -> linear
 function srgbToLinear(v: number) {
   const s = v / 255;
   return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
 }
 
-// Linear RGB -> XYZ (D65) -> Lab
 function rgbToLab({ r, g, b }: RGB): [number, number, number] {
   const R = srgbToLinear(r);
   const G = srgbToLinear(g);
@@ -71,144 +70,188 @@ function deltaE(a: [number, number, number], b: [number, number, number]) {
   );
 }
 
-// Precompute Tamiya Lab values
 const TAMIYA_LAB = TAMIYA_COLORS.map((c) => ({
   color: c,
   lab: rgbToLab(hexToRgb(c.hex)),
 }));
 
-function nearestTamiya(rgb: RGB): { color: TamiyaColor; distance: number } {
+function nearestTamiya(
+  rgb: RGB,
+  n: number,
+): { color: TamiyaColor; distance: number }[] {
   const lab = rgbToLab(rgb);
-  let best = TAMIYA_LAB[0];
-  let bestD = Infinity;
-  for (const t of TAMIYA_LAB) {
-    const d = deltaE(lab, t.lab);
-    if (d < bestD) {
-      bestD = d;
-      best = t;
-    }
-  }
-  return { color: best.color, distance: bestD };
+  return TAMIYA_LAB.map((t) => ({
+    color: t.color,
+    distance: deltaE(lab, t.lab),
+  }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, n);
 }
 
-// Simple color quantization: bucket by reduced-precision RGB, then pick top clusters.
-function extractDominantColors(
-  imgData: Uint8ClampedArray,
-  count: number,
-): { rgb: RGB; weight: number }[] {
-  const buckets = new Map<
-    string,
-    { r: number; g: number; b: number; n: number }
-  >();
-  const step = 4 * 4; // sample every 4th pixel
-  for (let i = 0; i < imgData.length; i += step) {
-    const a = imgData[i + 3];
-    if (a < 125) continue;
-    const r = imgData[i];
-    const g = imgData[i + 1];
-    const b = imgData[i + 2];
-    // Reduce to 5 bits per channel
-    const key = `${r >> 3}-${g >> 3}-${b >> 3}`;
-    const cur = buckets.get(key);
-    if (cur) {
-      cur.r += r;
-      cur.g += g;
-      cur.b += b;
-      cur.n += 1;
-    } else {
-      buckets.set(key, { r, g, b, n: 1 });
-    }
-  }
-  const total = Array.from(buckets.values()).reduce((s, v) => s + v.n, 0) || 1;
-  const sorted = Array.from(buckets.values()).sort((a, b) => b.n - a.n);
-  return sorted.slice(0, count).map((v) => ({
-    rgb: {
-      r: Math.round(v.r / v.n),
-      g: Math.round(v.g / v.n),
-      b: Math.round(v.b / v.n),
-    },
-    weight: v.n / total,
-  }));
-}
-
-interface Result {
-  rgb: RGB;
+interface PickEntry {
+  id: string;
   hex: string;
-  weight: number;
-  match: TamiyaColor;
-  distance: number;
+  rgb: RGB;
+  matches: { color: TamiyaColor; distance: number }[];
 }
 
 function Index() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [results, setResults] = useState<Result[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [count, setCount] = useState(6);
+  const [hoverColor, setHoverColor] = useState<string | null>(null);
+  const [entries, setEntries] = useState<PickEntry[]>([]);
+  const [matchCount, setMatchCount] = useState(3);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const analyze = (url: string, n: number) => {
-    setLoading(true);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const maxSize = 200;
-      const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        setLoading(false);
-        return;
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      const data = ctx.getImageData(0, 0, w, h).data;
-      const dominant = extractDominantColors(data, n);
-      const res: Result[] = dominant.map((d) => {
-        const match = nearestTamiya(d.rgb);
-        return {
-          rgb: d.rgb,
-          hex: rgbToHex(d.rgb),
-          weight: d.weight,
-          match: match.color,
-          distance: match.distance,
-        };
-      });
-      setResults(res);
-      setLoading(false);
-    };
-    img.onerror = () => setLoading(false);
-    img.src = url;
-  };
+  const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const onFile = (file: File) => {
     const url = URL.createObjectURL(file);
     setImageUrl(url);
-    analyze(url, count);
+    setEntries([]);
+    canvasRef.current = null;
   };
 
-  const onCountChange = (n: number) => {
-    setCount(n);
-    if (imageUrl) analyze(imageUrl, n);
+  const ensureCanvas = (): HTMLCanvasElement | null => {
+    if (canvasRef.current) return canvasRef.current;
+    const img = imgRef.current;
+    if (!img) return null;
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    canvasRef.current = c;
+    return c;
   };
 
-  const sorted = useMemo(
-    () => (results ? [...results].sort((a, b) => b.weight - a.weight) : null),
-    [results],
-  );
+  const pixelAt = (e: React.MouseEvent<HTMLImageElement>): RGB | null => {
+    const img = imgRef.current;
+    const c = ensureCanvas();
+    if (!img || !c) return null;
+    const rect = img.getBoundingClientRect();
+    const x = Math.floor(
+      ((e.clientX - rect.left) / rect.width) * img.naturalWidth,
+    );
+    const y = Math.floor(
+      ((e.clientY - rect.top) / rect.height) * img.naturalHeight,
+    );
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    const d = ctx.getImageData(
+      Math.max(0, Math.min(c.width - 1, x)),
+      Math.max(0, Math.min(c.height - 1, y)),
+      1,
+      1,
+    ).data;
+    return { r: d[0], g: d[1], b: d[2] };
+  };
+
+  const onMove = (e: React.MouseEvent<HTMLImageElement>) => {
+    const rgb = pixelAt(e);
+    if (rgb) setHoverColor(rgbToHex(rgb));
+  };
+
+  const onClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    const rgb = pixelAt(e);
+    if (!rgb) return;
+    const hex = rgbToHex(rgb);
+    const matches = nearestTamiya(rgb, matchCount);
+    setEntries((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), hex, rgb, matches },
+    ]);
+  };
+
+  const removeEntry = (id: string) =>
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+
+  const clearAll = () => setEntries([]);
+
+  const exportPdf = () => {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    let y = margin;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Tamiya Farbliste", margin, y);
+    y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(
+      `Erstellt am ${new Date().toLocaleDateString("de-DE")} · ${entries.length} Farben`,
+      margin,
+      y,
+    );
+    doc.setTextColor(0);
+    y += 8;
+
+    const swatch = 10;
+    const rowH = 16;
+
+    entries.forEach((entry, idx) => {
+      if (y + rowH + 4 > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+
+      // Picked color swatch
+      doc.setFillColor(entry.rgb.r, entry.rgb.g, entry.rgb.b);
+      doc.setDrawColor(200);
+      doc.rect(margin, y, swatch, swatch, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(`#${idx + 1}  ${entry.hex.toUpperCase()}`, margin + swatch + 4, y + 4);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(90);
+      doc.text("Nächste Tamiya-Farben:", margin + swatch + 4, y + 9);
+      doc.setTextColor(0);
+
+      // Matches
+      let mx = margin + swatch + 4;
+      let my = y + 11;
+      entry.matches.forEach((m) => {
+        const rgb = hexToRgb(m.color.hex);
+        doc.setFillColor(rgb.r, rgb.g, rgb.b);
+        doc.setDrawColor(200);
+        doc.rect(mx, my, 5, 5, "FD");
+        doc.setFontSize(9);
+        const label = `${m.color.code} ${m.color.name} (ΔE ${m.distance.toFixed(1)})`;
+        doc.text(label, mx + 7, my + 4);
+        const w = doc.getTextWidth(label) + 12;
+        mx += w;
+        if (mx > pageW - margin - 40) {
+          mx = margin + swatch + 4;
+          my += 6;
+        }
+      });
+
+      y += rowH + 2;
+      doc.setDrawColor(230);
+      doc.line(margin, y, pageW - margin, y);
+      y += 3;
+    });
+
+    doc.save(`tamiya-farbliste-${Date.now()}.pdf`);
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-5xl px-6 py-10">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">
             Tamiya Farbfinder
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Lade ein Bild hoch. Die dominanten Farben werden analysiert und den
-            nächstgelegenen Tamiya-Farben (X / XF) zugeordnet.
+            Lade ein Bild hoch, klicke mit der Pipette auf Farben und
+            exportiere die passenden Tamiya-Töne als PDF.
           </p>
         </header>
 
@@ -231,80 +274,124 @@ function Index() {
               }}
             />
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              Anzahl Farben:
+              Treffer pro Klick:
               <select
-                value={count}
-                onChange={(e) => onCountChange(Number(e.target.value))}
+                value={matchCount}
+                onChange={(e) => setMatchCount(Number(e.target.value))}
                 className="rounded-md border border-input bg-background px-2 py-1 text-sm"
               >
-                {[3, 5, 6, 8, 10, 12].map((n) => (
+                {[2, 3].map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>
                 ))}
               </select>
             </label>
-            {loading && (
-              <span className="text-sm text-muted-foreground">
-                Analysiere…
-              </span>
+            {hoverColor && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span
+                  className="inline-block h-5 w-5 rounded border border-border"
+                  style={{ backgroundColor: hoverColor }}
+                />
+                <span className="font-mono text-xs">{hoverColor}</span>
+              </div>
             )}
           </div>
 
           {imageUrl && (
             <div className="mt-6">
               <img
+                ref={imgRef}
                 src={imageUrl}
                 alt="Hochgeladenes Bild"
-                className="max-h-80 rounded-md border border-border object-contain"
+                onMouseMove={onMove}
+                onMouseLeave={() => setHoverColor(null)}
+                onClick={onClick}
+                crossOrigin="anonymous"
+                className="max-h-[500px] cursor-crosshair rounded-md border border-border object-contain"
+                onLoad={() => {
+                  canvasRef.current = null;
+                }}
               />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Klicke auf das Bild, um eine Farbe zur Liste hinzuzufügen.
+              </p>
             </div>
           )}
         </div>
 
-        {sorted && sorted.length > 0 && (
+        {entries.length > 0 && (
           <div className="mt-8">
-            <h2 className="mb-4 text-xl font-semibold">Ergebnisse</h2>
-            <div className="grid gap-3">
-              {sorted.map((r, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-4 rounded-lg border border-border bg-card p-3"
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold">
+                Farbliste ({entries.length})
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={clearAll}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted"
                 >
-                  <div
-                    className="h-14 w-14 shrink-0 rounded-md border border-border"
-                    style={{ backgroundColor: r.hex }}
-                    title={`Bildfarbe ${r.hex}`}
-                  />
-                  <div className="text-sm">
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {r.hex}
+                  Leeren
+                </button>
+                <button
+                  onClick={exportPdf}
+                  className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Als PDF herunterladen
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              {entries.map((entry, idx) => (
+                <div
+                  key={entry.id}
+                  className="rounded-lg border border-border bg-card p-3"
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="h-12 w-12 shrink-0 rounded-md border border-border"
+                      style={{ backgroundColor: entry.hex }}
+                    />
+                    <div className="text-sm">
+                      <div className="font-semibold">#{idx + 1}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {entry.hex}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {(r.weight * 100).toFixed(1)}% Anteil
+                    <div className="ml-auto">
+                      <button
+                        onClick={() => removeEntry(entry.id)}
+                        className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+                      >
+                        Entfernen
+                      </button>
                     </div>
                   </div>
-                  <div className="mx-2 text-muted-foreground">→</div>
-                  <div
-                    className="h-14 w-14 shrink-0 rounded-md border border-border"
-                    style={{ backgroundColor: r.match.hex }}
-                    title={`Tamiya ${r.match.code}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold">
-                      {r.match.code} – {r.match.name}
-                    </div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {r.match.hex} · ΔE {r.distance.toFixed(1)}
-                    </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {entry.matches.map((m) => (
+                      <div
+                        key={m.color.code}
+                        className="flex items-center gap-2 rounded-md border border-border p-2"
+                      >
+                        <div
+                          className="h-8 w-8 shrink-0 rounded border border-border"
+                          style={{ backgroundColor: m.color.hex }}
+                        />
+                        <div className="min-w-0 text-xs">
+                          <div className="truncate font-semibold">
+                            {m.color.code} – {m.color.name}
+                          </div>
+                          <div className="font-mono text-muted-foreground">
+                            {m.color.hex} · ΔE {m.distance.toFixed(1)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
-            <p className="mt-4 text-xs text-muted-foreground">
-              Hinweis: Die Tamiya-Referenzwerte sind Näherungswerte. ΔE ist der
-              Farbabstand im Lab-Farbraum – kleiner = ähnlicher.
-            </p>
           </div>
         )}
       </div>

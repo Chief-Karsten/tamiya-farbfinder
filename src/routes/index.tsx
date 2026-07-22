@@ -168,75 +168,140 @@ function Index() {
 
   const clearAll = () => setEntries([]);
 
+  const seriesName = (code: string) => {
+    const prefix = code.split("-")[0].toUpperCase();
+    if (prefix === "X") return "X-Serie (Glanz)";
+    if (prefix === "XF") return "XF-Serie (Matt)";
+    if (prefix === "LP") return "LP-Serie (Lack)";
+    if (prefix === "TS") return "TS-Serie (Spray)";
+    if (prefix === "PS") return "PS-Serie (Polycarbonat)";
+    return `${prefix}-Serie`;
+  };
+
   const exportPdf = () => {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const margin = 15;
+    const contentW = pageW - margin * 2;
     let y = margin;
 
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    // Title
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("Tamiya Farbliste", margin, y);
-    y += 6;
+    doc.setFontSize(18);
+    doc.setTextColor(20);
+    doc.text("Tamiya Farbliste", margin, y + 2);
+    y += 7;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(120);
     doc.text(
-      `Erstellt am ${new Date().toLocaleDateString("de-DE")} · ${entries.length} Farben`,
+      `Erstellt am ${new Date().toLocaleDateString("de-DE")} · ${entries.length} ausgewählte Farben`,
       margin,
       y,
     );
-    doc.setTextColor(0);
-    y += 8;
+    y += 6;
+    doc.setDrawColor(220);
+    doc.line(margin, y, pageW - margin, y);
+    y += 6;
 
-    const swatch = 10;
-    const rowH = 16;
+    const cols = 2;
+    const gap = 4;
+    const cardW = (contentW - gap * (cols - 1)) / cols;
+    const cardH = 34;
+    const swatchW = 26;
 
     entries.forEach((entry, idx) => {
-      if (y + rowH + 4 > pageH - margin) {
-        doc.addPage();
-        y = margin;
-      }
-
-      // Picked color swatch
+      // Entry header (picked color)
+      ensureSpace(18);
       doc.setFillColor(entry.rgb.r, entry.rgb.g, entry.rgb.b);
-      doc.setDrawColor(200);
-      doc.rect(margin, y, swatch, swatch, "FD");
-
+      doc.setDrawColor(180);
+      doc.roundedRect(margin, y, 12, 12, 1.5, 1.5, "FD");
+      doc.setTextColor(20);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`#${idx + 1}  ${entry.hex.toUpperCase()}`, margin + swatch + 4, y + 4);
-
+      doc.setFontSize(12);
+      doc.text(`Auswahl #${idx + 1}`, margin + 16, y + 5);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
-      doc.setTextColor(90);
-      doc.text("Nächste Tamiya-Farben:", margin + swatch + 4, y + 9);
-      doc.setTextColor(0);
+      doc.setTextColor(110);
+      doc.text(
+        `HEX ${entry.hex.toUpperCase()}   RGB ${entry.rgb.r}, ${entry.rgb.g}, ${entry.rgb.b}`,
+        margin + 16,
+        y + 10,
+      );
+      y += 15;
 
-      // Matches
-      let mx = margin + swatch + 4;
-      let my = y + 11;
-      entry.matches.forEach((m) => {
+      // Match cards
+      entry.matches.forEach((m, mi) => {
+        const col = mi % cols;
+        if (col === 0) ensureSpace(cardH + 2);
+        const cx = margin + col * (cardW + gap);
+        const cy = y;
+
+        // Card
+        doc.setDrawColor(220);
+        doc.setFillColor(252, 252, 252);
+        doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "FD");
+
+        // Swatch
         const rgb = hexToRgb(m.color.hex);
         doc.setFillColor(rgb.r, rgb.g, rgb.b);
         doc.setDrawColor(200);
-        doc.rect(mx, my, 5, 5, "FD");
-        doc.setFontSize(9);
-        const label = `${m.color.code} ${m.color.name} (ΔE ${m.distance.toFixed(1)})`;
-        doc.text(label, mx + 7, my + 4);
-        const w = doc.getTextWidth(label) + 12;
-        mx += w;
-        if (mx > pageW - margin - 40) {
-          mx = margin + swatch + 4;
-          my += 6;
+        doc.roundedRect(cx + 3, cy + 3, swatchW, cardH - 6, 1.5, 1.5, "FD");
+
+        // Text block
+        const tx = cx + swatchW + 7;
+        const tw = cardW - swatchW - 10;
+
+        doc.setTextColor(20);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text(m.color.code, tx, cy + 6);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        const name = doc.splitTextToSize(m.color.name, tw);
+        doc.text(name[0] ?? "", tx, cy + 11);
+
+        doc.setFontSize(8);
+        doc.setTextColor(110);
+        doc.text(seriesName(m.color.code), tx, cy + 16);
+
+        doc.setFontSize(8.5);
+        doc.setTextColor(60);
+        doc.text(`HEX  ${m.color.hex.toUpperCase()}`, tx, cy + 22);
+        doc.text(`RGB  ${rgb.r}, ${rgb.g}, ${rgb.b}`, tx, cy + 26);
+
+        // ΔE badge (bottom-right)
+        const badgeW = 18;
+        const badgeH = 6;
+        const bx = cx + cardW - badgeW - 3;
+        const by = cy + cardH - badgeH - 3;
+        const d = m.distance;
+        const badge =
+          d < 5 ? [46, 125, 50] : d < 12 ? [237, 108, 2] : [198, 40, 40];
+        doc.setFillColor(badge[0], badge[1], badge[2]);
+        doc.roundedRect(bx, by, badgeW, badgeH, 1, 1, "F");
+        doc.setTextColor(255);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text(`ΔE ${d.toFixed(1)}`, bx + badgeW / 2, by + 4.2, {
+          align: "center",
+        });
+        doc.setFont("helvetica", "normal");
+
+        if (col === cols - 1 || mi === entry.matches.length - 1) {
+          y += cardH + gap;
         }
       });
 
-      y += rowH + 2;
-      doc.setDrawColor(230);
-      doc.line(margin, y, pageW - margin, y);
-      y += 3;
+      y += 4;
     });
 
     doc.save(`tamiya-farbliste-${Date.now()}.pdf`);

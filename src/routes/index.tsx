@@ -219,8 +219,16 @@ function Index() {
     const swatchW = 26;
 
     entries.forEach((entry, idx) => {
+      const headerH = 15;
+      const rows = Math.ceil(entry.matches.length / cols);
+      const blockH = headerH + rows * (cardH + gap) + 4;
+      // Keep header + all match cards together on the same page
+      if (y + blockH > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+
       // Entry header (picked color)
-      ensureSpace(18);
       doc.setFillColor(entry.rgb.r, entry.rgb.g, entry.rgb.b);
       doc.setDrawColor(180);
       doc.roundedRect(margin, y, 12, 12, 1.5, 1.5, "FD");
@@ -236,12 +244,11 @@ function Index() {
         margin + 16,
         y + 10,
       );
-      y += 15;
+      y += headerH;
 
       // Match cards
       entry.matches.forEach((m, mi) => {
         const col = mi % cols;
-        if (col === 0) ensureSpace(cardH + 2);
         const cx = margin + col * (cardW + gap);
         const cy = y;
 
@@ -278,20 +285,20 @@ function Index() {
         doc.text(`HEX  ${m.color.hex.toUpperCase()}`, tx, cy + 22);
         doc.text(`RGB  ${rgb.r}, ${rgb.g}, ${rgb.b}`, tx, cy + 26);
 
-        // ΔE badge (bottom-right)
-        const badgeW = 18;
-        const badgeH = 6;
+        // \u0394E badge (bottom-right) – wider for full readability
+        const badgeW = 24;
+        const badgeH = 7.5;
         const bx = cx + cardW - badgeW - 3;
         const by = cy + cardH - badgeH - 3;
         const d = m.distance;
         const badge =
           d < 5 ? [46, 125, 50] : d < 12 ? [237, 108, 2] : [198, 40, 40];
         doc.setFillColor(badge[0], badge[1], badge[2]);
-        doc.roundedRect(bx, by, badgeW, badgeH, 1, 1, "F");
+        doc.roundedRect(bx, by, badgeW, badgeH, 1.5, 1.5, "F");
         doc.setTextColor(255);
-        doc.setFontSize(8);
+        doc.setFontSize(8.5);
         doc.setFont("helvetica", "bold");
-        doc.text(`ΔE ${d.toFixed(1)}`, bx + badgeW / 2, by + 4.2, {
+        doc.text(`\u0394E ${d.toFixed(1)}`, bx + badgeW / 2, by + 5.1, {
           align: "center",
         });
         doc.setFont("helvetica", "normal");

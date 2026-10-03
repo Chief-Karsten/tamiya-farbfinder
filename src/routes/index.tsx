@@ -692,6 +692,47 @@ function Index() {
                   ))}
                 </div>
               </div>
+              <div>
+                <div className="mb-2 text-xs text-muted-foreground">
+                  Mein Farbbestand ({owned.length})
+                </div>
+                <input
+                  value={ownedQuery}
+                  onChange={(e) => setOwnedQuery(e.target.value)}
+                  placeholder="Suchen, z. B. XF-1 oder Rot …"
+                  className="block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                />
+                <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-border">
+                  {TAMIYA_COLORS.filter((c) => {
+                    const q = ownedQuery.trim().toLowerCase();
+                    return (
+                      !q ||
+                      c.code.toLowerCase().includes(q) ||
+                      c.name.toLowerCase().includes(q)
+                    );
+                  }).map((c) => (
+                    <label
+                      key={c.code}
+                      className="flex cursor-pointer items-center gap-2 border-b border-border px-2 py-1 text-xs last:border-b-0 hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={owned.includes(c.code)}
+                        onChange={() => toggleOwned(c.code)}
+                      />
+                      <span
+                        className="h-3.5 w-3.5 shrink-0 rounded-sm border border-border"
+                        style={{ backgroundColor: c.hex }}
+                      />
+                      <span className="font-medium">{c.code}</span>
+                      <span className="truncate text-muted-foreground">{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Der Abgleich prüft zuerst deinen Bestand, danach den gesamten Katalog.
+                </p>
+              </div>
               <label className="block text-xs text-muted-foreground">
                 Treffer pro Farbe
                 <select

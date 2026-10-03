@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import { TAMIYA_COLORS, type TamiyaColor } from "@/lib/tamiya-colors";
 
@@ -34,6 +34,7 @@ type PickEntry = {
   hex: string;
   rgb: RGB;
   matches: Match[];
+  ownedMatches: Match[];
   mix: MixSuggestion | null;
 };
 type Point = { x: number; y: number };
@@ -101,10 +102,14 @@ const COLOR_LAB = TAMIYA_COLORS.map((color) => ({
   lab: rgbToLab(hexToRgb(color.hex)),
 }));
 
+const OWNED_KEY = "tamiya-owned-colors";
+
 function Index() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [entries, setEntries] = useState<PickEntry[]>([]);
   const [matchCount, setMatchCount] = useState(5);
+  const [owned, setOwned] = useState<string[]>([]);
+  const [ownedQuery, setOwnedQuery] = useState("");
   const [sampleRadius, setSampleRadius] = useState(4);
   const [mode, setMode] = useState<"point" | "area">("point");
   const [robustArea, setRobustArea] = useState(true);
@@ -127,6 +132,29 @@ function Index() {
     () => TAMIYA_COLORS.filter((c) => activeSeries.includes(seriesOf(c.code))),
     [activeSeries],
   );
+
+  const ownedColors = useMemo(
+    () => TAMIYA_COLORS.filter((c) => owned.includes(c.code)),
+    [owned],
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OWNED_KEY);
+      if (raw) setOwned(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OWNED_KEY, JSON.stringify(owned));
+    } catch {}
+  }, [owned]);
+
+  const toggleOwned = (code: string) =>
+    setOwned((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
 
   const onFile = (file: File) => {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -156,6 +184,16 @@ function Index() {
   const nearestTamiya = (rgb: RGB, n: number): Match[] => {
     const lab = rgbToLab(rgb);
     const allowed = new Set(filteredColors.map((c) => c.code));
+    return COLOR_LAB.filter((t) => allowed.has(t.color.code))
+      .map((t) => ({ color: t.color, distance: deltaE(lab, t.lab) }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, n);
+  };
+
+  const nearestOwned = (rgb: RGB, n: number): Match[] => {
+    if (!ownedColors.length) return [];
+    const lab = rgbToLab(rgb);
+    const allowed = new Set(ownedColors.map((c) => c.code));
     return COLOR_LAB.filter((t) => allowed.has(t.color.code))
       .map((t) => ({ color: t.color, distance: deltaE(lab, t.lab) }))
       .sort((a, b) => a.distance - b.distance)
@@ -208,6 +246,7 @@ function Index() {
         rgb: { r: clamp(rgb.r), g: clamp(rgb.g), b: clamp(rgb.b) },
         hex: rgbToHex(rgb),
         matches: nearestTamiya(rgb, matchCount),
+        ownedMatches: nearestOwned(rgb, 3),
         mix: bestMix(rgb),
       },
     ]);
@@ -319,10 +358,15 @@ function Index() {
           .map((t) => ({ color: t.color, distance: deltaE(lab, t.lab) }))
           .sort((a, b) => a.distance - b.distance)
           .slice(0, count);
-        return { ...entry, matches };
+        return { ...entry, matches, ownedMatches: nearestOwned(entry.rgb, 3) };
       }),
     );
   };
+
+  useEffect(() => {
+    if (entries.length) recalcEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owned]);
 
   const toggleSeries = (s: Series) => {
     const next = activeSeries.includes(s)
@@ -398,7 +442,9 @@ function Index() {
 
     entries.forEach((entry, idx) => {
       const rows = entry.matches.length;
-      const needed = 28 + rows * 8 + (entry.mix ? 15 : 0);
+      const ownedRows = entry.ownedMatches.length;
+      const needed =
+        28 + rows * 8 + (ownedRows ? 6 + ownedRows * 7 : 0) + (entry.mix ? 15 : 0);
       ensure(needed);
 
       doc.setFillColor(entry.rgb.r, entry.rgb.g, entry.rgb.b);
@@ -418,10 +464,32 @@ function Index() {
       );
       y += 21;
 
+      if (entry.ownedMatches.length) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30);
+        doc.setFontSize(9.5);
+        doc.text("Aus deinem Bestand", margin, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        entry.ownedMatches.forEach((m, mi) => {
+          const crgb = hexToRgb(m.color.hex);
+          doc.setFillColor(crgb.r, crgb.g, crgb.b);
+          doc.rect(margin, y - 3.5, 6, 5, "F");
+          doc.setTextColor(45);
+          doc.text(
+            `${mi + 1}. ${m.color.code} – ${m.color.name} · ${seriesName(m.color.code)} · ΔE ${m.distance.toFixed(1)}`,
+            margin + 9,
+            y,
+          );
+          y += 7;
+        });
+        y += 1;
+      }
+
       doc.setFont("helvetica", "bold");
       doc.setTextColor(30);
       doc.setFontSize(9.5);
-      doc.text("Beste Tamiya-Treffer", margin, y);
+      doc.text("Beste Tamiya-Treffer (gesamter Katalog)", margin, y);
       y += 5;
       doc.setFont("helvetica", "normal");
       entry.matches.forEach((m, mi) => {
@@ -648,6 +716,47 @@ function Index() {
                   ))}
                 </div>
               </div>
+              <div>
+                <div className="mb-2 text-xs text-muted-foreground">
+                  Mein Farbbestand ({owned.length})
+                </div>
+                <input
+                  value={ownedQuery}
+                  onChange={(e) => setOwnedQuery(e.target.value)}
+                  placeholder="Suchen, z. B. XF-1 oder Rot …"
+                  className="block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                />
+                <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-border">
+                  {TAMIYA_COLORS.filter((c) => {
+                    const q = ownedQuery.trim().toLowerCase();
+                    return (
+                      !q ||
+                      c.code.toLowerCase().includes(q) ||
+                      c.name.toLowerCase().includes(q)
+                    );
+                  }).map((c) => (
+                    <label
+                      key={c.code}
+                      className="flex cursor-pointer items-center gap-2 border-b border-border px-2 py-1 text-xs last:border-b-0 hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={owned.includes(c.code)}
+                        onChange={() => toggleOwned(c.code)}
+                      />
+                      <span
+                        className="h-3.5 w-3.5 shrink-0 rounded-sm border border-border"
+                        style={{ backgroundColor: c.hex }}
+                      />
+                      <span className="font-medium">{c.code}</span>
+                      <span className="truncate text-muted-foreground">{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Der Abgleich prüft zuerst deinen Bestand, danach den gesamten Katalog.
+                </p>
+              </div>
               <label className="block text-xs text-muted-foreground">
                 Treffer pro Farbe
                 <select
@@ -718,6 +827,26 @@ function Index() {
                     </button>
                   </div>
 
+                  {entry.ownedMatches.length > 0 && (
+                    <div className="mt-4">
+                      <div className="mb-2 text-xs font-semibold text-foreground">
+                        Aus deinem Bestand
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                        {entry.ownedMatches.map((m) => (
+                          <div key={m.color.code} className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/5 p-2">
+                            <div className="h-9 w-9 shrink-0 rounded border border-border" style={{ backgroundColor: m.color.hex }} />
+                            <div className="min-w-0 text-xs">
+                              <div className="truncate font-semibold">{m.color.code} – {m.color.name}</div>
+                              <div className="text-muted-foreground">{seriesName(m.color.code)}</div>
+                              <div className="font-mono text-muted-foreground">ΔE {m.distance.toFixed(1)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     {entry.matches.map((m) => (
                       <div key={m.color.code} className="flex items-center gap-2 rounded-md border border-border p-2">
@@ -725,7 +854,12 @@ function Index() {
                         <div className="min-w-0 text-xs">
                           <div className="truncate font-semibold">{m.color.code} – {m.color.name}</div>
                           <div className="text-muted-foreground">{seriesName(m.color.code)}</div>
-                          <div className="font-mono text-muted-foreground">ΔE {m.distance.toFixed(1)}</div>
+                          <div className="font-mono text-muted-foreground">
+                            ΔE {m.distance.toFixed(1)}
+                            {owned.includes(m.color.code) && (
+                              <span className="ml-1 rounded-sm bg-primary px-1 font-sans text-[9px] text-primary-foreground">Bestand</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}

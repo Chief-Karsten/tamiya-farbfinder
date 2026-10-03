@@ -803,6 +803,26 @@ function Index() {
                     </button>
                   </div>
 
+                  {entry.ownedMatches.length > 0 && (
+                    <div className="mt-4">
+                      <div className="mb-2 text-xs font-semibold text-foreground">
+                        Aus deinem Bestand
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                        {entry.ownedMatches.map((m) => (
+                          <div key={m.color.code} className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/5 p-2">
+                            <div className="h-9 w-9 shrink-0 rounded border border-border" style={{ backgroundColor: m.color.hex }} />
+                            <div className="min-w-0 text-xs">
+                              <div className="truncate font-semibold">{m.color.code} – {m.color.name}</div>
+                              <div className="text-muted-foreground">{seriesName(m.color.code)}</div>
+                              <div className="font-mono text-muted-foreground">ΔE {m.distance.toFixed(1)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     {entry.matches.map((m) => (
                       <div key={m.color.code} className="flex items-center gap-2 rounded-md border border-border p-2">

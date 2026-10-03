@@ -830,7 +830,12 @@ function Index() {
                         <div className="min-w-0 text-xs">
                           <div className="truncate font-semibold">{m.color.code} – {m.color.name}</div>
                           <div className="text-muted-foreground">{seriesName(m.color.code)}</div>
-                          <div className="font-mono text-muted-foreground">ΔE {m.distance.toFixed(1)}</div>
+                          <div className="font-mono text-muted-foreground">
+                            ΔE {m.distance.toFixed(1)}
+                            {owned.includes(m.color.code) && (
+                              <span className="ml-1 rounded-sm bg-primary px-1 font-sans text-[9px] text-primary-foreground">Bestand</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}

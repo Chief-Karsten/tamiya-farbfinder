@@ -133,6 +133,29 @@ function Index() {
     [activeSeries],
   );
 
+  const ownedColors = useMemo(
+    () => TAMIYA_COLORS.filter((c) => owned.includes(c.code)),
+    [owned],
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OWNED_KEY);
+      if (raw) setOwned(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OWNED_KEY, JSON.stringify(owned));
+    } catch {}
+  }, [owned]);
+
+  const toggleOwned = (code: string) =>
+    setOwned((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+
   const onFile = (file: File) => {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     const url = URL.createObjectURL(file);

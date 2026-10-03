@@ -190,6 +190,16 @@ function Index() {
       .slice(0, n);
   };
 
+  const nearestOwned = (rgb: RGB, n: number): Match[] => {
+    if (!ownedColors.length) return [];
+    const lab = rgbToLab(rgb);
+    const allowed = new Set(ownedColors.map((c) => c.code));
+    return COLOR_LAB.filter((t) => allowed.has(t.color.code))
+      .map((t) => ({ color: t.color, distance: deltaE(lab, t.lab) }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, n);
+  };
+
   const bestMix = (rgb: RGB): MixSuggestion | null => {
     const lab = rgbToLab(rgb);
     const nearest = nearestTamiya(rgb, 20);
@@ -236,6 +246,7 @@ function Index() {
         rgb: { r: clamp(rgb.r), g: clamp(rgb.g), b: clamp(rgb.b) },
         hex: rgbToHex(rgb),
         matches: nearestTamiya(rgb, matchCount),
+        ownedMatches: nearestOwned(rgb, 3),
         mix: bestMix(rgb),
       },
     ]);

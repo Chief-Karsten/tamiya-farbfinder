@@ -138,14 +138,18 @@ function Index() {
     [owned],
   );
 
+  const ownedLoadedRef = useRef(false);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(OWNED_KEY);
       if (raw) setOwned(JSON.parse(raw));
     } catch {}
+    ownedLoadedRef.current = true;
   }, []);
 
   useEffect(() => {
+    if (!ownedLoadedRef.current) return;
     try {
       localStorage.setItem(OWNED_KEY, JSON.stringify(owned));
     } catch {}
@@ -754,7 +758,9 @@ function Index() {
                   ))}
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Der Abgleich prüft zuerst deinen Bestand, danach den gesamten Katalog.
+                  Dein Bestand wird dauerhaft im Browser gespeichert und steht
+                  automatisch für jedes weitere Bild bereit – ohne erneute
+                  Auswahl.
                 </p>
               </div>
               <label className="block text-xs text-muted-foreground">

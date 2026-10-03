@@ -442,7 +442,9 @@ function Index() {
 
     entries.forEach((entry, idx) => {
       const rows = entry.matches.length;
-      const needed = 28 + rows * 8 + (entry.mix ? 15 : 0);
+      const ownedRows = entry.ownedMatches.length;
+      const needed =
+        28 + rows * 8 + (ownedRows ? 6 + ownedRows * 7 : 0) + (entry.mix ? 15 : 0);
       ensure(needed);
 
       doc.setFillColor(entry.rgb.r, entry.rgb.g, entry.rgb.b);
@@ -462,10 +464,32 @@ function Index() {
       );
       y += 21;
 
+      if (entry.ownedMatches.length) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30);
+        doc.setFontSize(9.5);
+        doc.text("Aus deinem Bestand", margin, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        entry.ownedMatches.forEach((m, mi) => {
+          const crgb = hexToRgb(m.color.hex);
+          doc.setFillColor(crgb.r, crgb.g, crgb.b);
+          doc.rect(margin, y - 3.5, 6, 5, "F");
+          doc.setTextColor(45);
+          doc.text(
+            `${mi + 1}. ${m.color.code} – ${m.color.name} · ${seriesName(m.color.code)} · ΔE ${m.distance.toFixed(1)}`,
+            margin + 9,
+            y,
+          );
+          y += 7;
+        });
+        y += 1;
+      }
+
       doc.setFont("helvetica", "bold");
       doc.setTextColor(30);
       doc.setFontSize(9.5);
-      doc.text("Beste Tamiya-Treffer", margin, y);
+      doc.text("Beste Tamiya-Treffer (gesamter Katalog)", margin, y);
       y += 5;
       doc.setFont("helvetica", "normal");
       entry.matches.forEach((m, mi) => {

@@ -358,10 +358,15 @@ function Index() {
           .map((t) => ({ color: t.color, distance: deltaE(lab, t.lab) }))
           .sort((a, b) => a.distance - b.distance)
           .slice(0, count);
-        return { ...entry, matches };
+        return { ...entry, matches, ownedMatches: nearestOwned(entry.rgb, 3) };
       }),
     );
   };
+
+  useEffect(() => {
+    if (entries.length) recalcEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owned]);
 
   const toggleSeries = (s: Series) => {
     const next = activeSeries.includes(s)

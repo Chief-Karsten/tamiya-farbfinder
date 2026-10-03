@@ -102,10 +102,14 @@ const COLOR_LAB = TAMIYA_COLORS.map((color) => ({
   lab: rgbToLab(hexToRgb(color.hex)),
 }));
 
+const OWNED_KEY = "tamiya-owned-colors";
+
 function Index() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [entries, setEntries] = useState<PickEntry[]>([]);
   const [matchCount, setMatchCount] = useState(5);
+  const [owned, setOwned] = useState<string[]>([]);
+  const [ownedQuery, setOwnedQuery] = useState("");
   const [sampleRadius, setSampleRadius] = useState(4);
   const [mode, setMode] = useState<"point" | "area">("point");
   const [robustArea, setRobustArea] = useState(true);

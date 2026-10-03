@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import { TAMIYA_COLORS, type TamiyaColor } from "@/lib/tamiya-colors";
 
@@ -34,6 +34,7 @@ type PickEntry = {
   hex: string;
   rgb: RGB;
   matches: Match[];
+  ownedMatches: Match[];
   mix: MixSuggestion | null;
 };
 type Point = { x: number; y: number };
